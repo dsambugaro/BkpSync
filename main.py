@@ -11,13 +11,13 @@ import server
 import client
 
 class MainController(threading.Thread):
-    def __init__(self, host, port, port_client, path):
+    def __init__(self, host, port2client, port, path):
         threading.Thread.__init__(self)
         self._running = True
         self._stop_event = threading.Event()
         self._queue = Queue()
         self.server = server.Server('localhost', port, path, self._queue)
-        self.client = client.Client(host, port_client, path, self._queue)
+        self.client = client.Client(host, port2client, path, self._queue)
 
     def run(self):
         self.printName()
@@ -76,24 +76,21 @@ def main():
         mc = MainController(host, port, port_client, path)
         mc.daemon = True
         mc.start()
-        mc.join()
+        mc.join(1)
     except Exception:
         print('Usage:\n\t %s <host> <host port> <client port> <path>' % argv[0])
         exit(1)
-    while True:
-        try:
+    try:
+        while True:
             sleep(1)
-        except (KeyboardInterrupt, SystemExit):
-            stop = input('Do you really want end synchronization? (y/N)')
-            if stop == 'y' or stop == 'Y':
-                mc.stop()
-                while mc.is_alive():
-                    pass
-                print('\n\n')
-                print('Ending Synchronization...')
-                print('\n\n')
-                exit(0)
-            continue
+    except (KeyboardInterrupt, SystemExit):
+        mc.stop()
+        while mc.is_alive():
+            pass
+        print('\n\n')
+        print('Ending Synchronization...')
+        print('\n\n')
+        exit(0)
 
 
 

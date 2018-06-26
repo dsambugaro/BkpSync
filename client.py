@@ -13,6 +13,7 @@ class EventHandler(pyinotify.ProcessEvent):
         self.folder = folder
         self.host = host
         self.port = port
+        self._last_file_created = None
 
     def process_IN_CREATE(self, event):
         last_file = ''
@@ -22,8 +23,7 @@ class EventHandler(pyinotify.ProcessEvent):
             print('Empty queue, you may have updates to send')
 
         if(last_file != event.pathname):
-            print('LAST: ', last_file)
-            print('Create detected!')
+            print('Create detected! ' , event.pathname)
             sync = threading.Thread(target=Client.sendFile, args=(self.folder, event.pathname, 'create', self.host, self.port, self._queue))
             sync.daemon = True
             sync.start()
@@ -32,12 +32,19 @@ class EventHandler(pyinotify.ProcessEvent):
             # Client.sendFile(self.folder, event.pathname, 'create', self.host, self.port, self._queue)
 
     def process_IN_DELETE(self, event):
+        try:
+            self._queue.get(False)
+        except Exception:
+            print('Empty queue, you may have updates to send')
+        #
+        # if(last_file == event.pathname):
         print('Delete detected! ', event.pathname)
         sync = threading.Thread(target=Client.sendFile, args=(self.folder, event.pathname, 'delete', self.host, self.port, self._queue))
         sync.daemon = True
         sync.start()
         sync._stop_event = threading.Event()
         sync.join(1)
+        self._last_file_created = event.pathname
 
     def process_IN_MODIFY(self, event):
         last_file = ''
@@ -46,8 +53,7 @@ class EventHandler(pyinotify.ProcessEvent):
         except Exception:
             print('Empty queue, you may have updates to send')
 
-        if(last_file != event.pathname):
-            print('LAST: ', last_file)
+        if(last_file != event.pathname and self._last_file_created != event.pathname):
             print('Modify detected! ', event.pathname)
             sync = threading.Thread(target=Client.sendFile, args=(self.folder, event.pathname, 'modify', self.host, self.port, self._queue))
             sync.daemon = True
@@ -73,7 +79,7 @@ class Client(threading.Thread):
         mask = pyinotify.IN_DELETE | pyinotify.IN_CREATE | pyinotify.IN_MODIFY
         handler = EventHandler(self._queue, self._path, self._host, self._port)
         notifier = pyinotify.Notifier(wm, handler)
-        wd = wm.add_watch(self._path, mask)
+        wd = wm.add_watch(self._path, mask, rec=True, auto_add=True)
         if wd.get(self._path) >= 0:
             print('Init watcher directory...')
             notifier.loop()
@@ -86,18 +92,29 @@ class Client(threading.Thread):
 
     @staticmethod
     def sendFile(folder, path, action, host, port, queue):
+        directory = False
         if action == 'create':
-            queue.put(path)
+            try:
+                with open(path, 'rb') as f:
+                    aux = f.read(1)
+                    if aux:
+                        queue.put(path)
+            except Exception:
+                print('Is a directory')
+                directory = True
+
         sckt = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sckt.connect((host, port))
         file_name = path.replace(folder, '')
-        if action != 'delete':
+        if directory:
+             file_name += '&'
+        elif action != 'delete':
             file_name += '?'
         else:
             file_name += '*'
         print('Sending file name')
         sckt.send(bytes(file_name, 'utf-8'))
-        if action != 'delete':
+        if action != 'delete' and not directory:
             print('Sending file body')
             with open(path, 'rb') as f:
                 file_body = f.read(4096)
@@ -105,6 +122,7 @@ class Client(threading.Thread):
                     sckt.send(file_body)
                     sleep(1)
                     file_body = f.read(4096)
+        sleep(1)
         print('Closing connection')
         sckt.close()
         exit(0)

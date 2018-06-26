@@ -4,6 +4,7 @@
 import socket
 import threading
 import os
+import shutil
 from time import sleep
 
 class Server(threading.Thread):
@@ -43,9 +44,17 @@ class Server(threading.Thread):
                 break
             if aux.decode('utf-8') == '*':
                 break
+            if aux.decode('utf-8') == '&':
+                break
             file_name += aux.decode('utf-8')
         file_path = (path + file_name)
-        if aux.decode('utf-8') != '*':
+        if aux.decode('utf-8') == '&':
+            queue.put(file_path)
+            queue.put(file_path)
+            print('Creating directory')
+            os.mkdir(file_path)
+            print('Directory ' + file_path + ' created')
+        elif aux.decode('utf-8') == '?':
             print("Updating file {}. Command from client {}".format(file_path, addr))
             queue.put(file_path)
             with open(file_path, 'wb') as f:
@@ -59,11 +68,17 @@ class Server(threading.Thread):
             print('File ' + file_path + ' updated')
         else:
             queue.put(file_path)
-            print("Deleting file {}. Command from client {}".format(file_path, addr))
+            print("Deleting... {}. Command from client {}".format(file_path, addr))
             try:
-                os.remove(file_path)
+                shutil.rmtree(file_path)
+                print('Folder ' + file_path + ' deleted')
             except Exception:
-                print('File ' + file_path + ' deleted')
+                try:
+                    os.remove(file_path)
+                    print('File ' + file_path + ' deleted')
+                except Exception as e:
+                    print(e)
+                    print('File or directory ' + file_path + ' already deleted or not found')
         exit(0)
 
     def stop(self):
